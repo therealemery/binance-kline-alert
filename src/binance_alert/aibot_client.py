@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
-
-from wecom_aibot_sdk import WSClient, generate_req_id
+from typing import TYPE_CHECKING, Any
 
 from .commands import CommandHandler
 from .config import AiBotConfig
 from .store import StateStore
+
+if TYPE_CHECKING:
+    from wecom_aibot_sdk import WSClient
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,8 @@ class WeComAiBotBridge:
         return bool(self._client and self._client.is_connected and self._authenticated)
 
     def _build_client(self) -> WSClient:
+        from wecom_aibot_sdk import WSClient
+
         client = WSClient(
             bot_id=self.config.bot_id,
             secret=self.config.secret,
@@ -82,6 +85,8 @@ class WeComAiBotBridge:
 
         if self._client is None:
             return
+
+        from wecom_aibot_sdk import generate_req_id
 
         stream_id = generate_req_id("stream")
         try:

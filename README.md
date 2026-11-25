@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/therealemery/binance-kline-alert/actions/workflows/ci.yml/badge.svg)](https://github.com/therealemery/binance-kline-alert/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 English | [简体中文](./README.zh-CN.md)
 
@@ -59,7 +59,7 @@ Monitors both **Binance tokenized US stocks (bStocks, e.g., `NVDABUSDT`, `TSLABU
 
 ### 1. Clone & Install
 
-Requires Python 3.10+:
+Requires Python 3.11+:
 
 ```bash
 git clone https://github.com/therealemery/binance-kline-alert.git

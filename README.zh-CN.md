@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/therealemery/binance-kline-alert/actions/workflows/ci.yml/badge.svg)](https://github.com/therealemery/binance-kline-alert/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 
 [English](./README.md) | 简体中文
 
@@ -61,7 +61,7 @@
 
 ### 1. 克隆并安装依赖
 
-要求 Python 3.10+：
+要求 Python 3.11+：
 
 ```bash
 git clone https://github.com/therealemery/binance-kline-alert.git
