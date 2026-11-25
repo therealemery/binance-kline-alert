@@ -1,0 +1,20 @@
+[Unit]
+Description=Binance K-Line Engulfing Pattern WeCom Alert Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+NoNewPrivileges=true
+WorkingDirectory=/opt/binance-kline-alert
+EnvironmentFile=/opt/binance-kline-alert/.env
+ExecStart=/opt/binance-kline-alert/.venv/bin/binance-alert -c /opt/binance-kline-alert/config.yaml run
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

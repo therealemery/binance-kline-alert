@@ -1,0 +1,62 @@
+# 币安 K 线形态提醒系统配置示例
+# 复制为 config.yaml 后按需修改；支持 ${ENV_VAR} 引用 .env 或系统环境变量
+
+binance:
+  base_url: https://api.binance.com
+  # 可选代理，海外 VPS 建议留空直连
+  proxy: ${BINANCE_PROXY}
+  # 初始监控标的（首次启动写入 SQLite；之后可在企微群内动态增删）
+  # 同时支持美股代币 bStocks（如 NVDABUSDT）与加密现货（如 BTCUSDT、ETHUSDT）
+  symbols:
+    - BTCUSDT
+    - ETHUSDT
+    - SOLUSDT
+    - NVDABUSDT
+    - TSLABUSDT
+    - AAPLBUSDT
+  # 默认 K 线周期：支持 5m / 15m / 30m / 1h / 4h / 1d 等（自定义规则可单独指定周期）
+  interval: 1h
+  # 轮询间隔（秒），建议 >= 30 秒
+  poll_interval_seconds: 45
+  max_concurrency: 5
+  timeout_seconds: 15
+
+wecom:
+  # 通道 1（主推送）：企业微信群机器人 Webhook URL（永久有效，无 24h 限制）
+  webhook_urls:
+    - ${WECOM_WEBHOOK_URL}
+
+  # 通道 2（群内交互）：企业微信智能机器人长连接（API 模式）
+  # 未填 bot_id / secret 时自动降级为纯 Webhook 推送模式
+  aibot:
+    enabled: true
+    bot_id: ${WECOM_BOT_ID}
+    secret: ${WECOM_BOT_SECRET}
+    # 组合模式下建议 false，避免与 Webhook 重复推送；若只用单智能机器人可改为 true
+    push_alerts: false
+    # 允许修改标的/规则/启停的企微 userid 白名单；留空表示群内所有成员均可操作
+    allowed_users: []
+
+llm:
+  # 用于自然语言意图理解与形态规则编译（日常 K 线轮询零 LLM 消耗）
+  enabled: true
+  api_key: ${DEEPSEEK_API_KEY}
+  base_url: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+  model: ${DEEPSEEK_MODEL:-deepseek-flash}
+  timeout_seconds: 30
+  # 创建规则预览时使用最近多少根已收盘 K 线做历史回测
+  backtest_candles: 120
+
+alert:
+  # 是否启用内置默认的阳包阴 / 阴包阳吞没形态检测（可与自定义规则并行生效）
+  enable_default_engulfing: true
+  enable_volume_filter: true
+  min_body_ratio: 1.0
+  min_body_pct: 0.001
+  timezone: Asia/Shanghai
+
+storage:
+  sqlite_path: ./data/alert_state.sqlite3
+
+logging:
+  level: INFO
