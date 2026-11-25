@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "binance-kline-alert"
 version = "0.1.0"
-description = "Binance K-line pattern & LLM natural-language alert bot for WeCom internal groups"
+description = "Binance K-line pattern & LLM natural-language alert bot for Telegram & WeCom"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Jiacheng Jiang" }]
 requires-python = ">=3.10"
-keywords = ["binance", "kline", "trading", "alert", "wecom", "deepseek", "llm", "bot"]
+keywords = ["binance", "kline", "trading", "alert", "telegram", "wecom", "deepseek", "llm", "bot"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Financial and Insurance Industry",

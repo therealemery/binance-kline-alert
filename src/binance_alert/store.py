@@ -298,6 +298,25 @@ class StateStore:
         except json.JSONDecodeError:
             return []
 
+    def register_telegram_chat_id(self, chat_id: str) -> None:
+        cid = str(chat_id).strip()
+        if not cid:
+            return
+        chat_ids = self.get_telegram_chat_ids()
+        if cid not in chat_ids:
+            chat_ids.append(cid)
+            self.set_meta("telegram_chat_ids", json.dumps(chat_ids))
+
+    def get_telegram_chat_ids(self) -> list[str]:
+        raw = self.get_meta("telegram_chat_ids")
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
+            return [str(x) for x in data if x]
+        except json.JSONDecodeError:
+            return []
+
     # ---- Custom LLM-compiled Rules ----
 
     def add_rule(self, rule: CustomRule) -> int:

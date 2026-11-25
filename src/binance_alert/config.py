@@ -29,6 +29,25 @@ def _expand_env(value: Any) -> Any:
     return value
 
 
+def _normalize_str_list(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    if isinstance(raw, str):
+        raw_list = [raw]
+    elif isinstance(raw, list):
+        raw_list = [str(x) for x in raw if x is not None and str(x).strip()]
+    else:
+        raw_list = []
+
+    items: list[str] = []
+    for item in raw_list:
+        for part in item.split(","):
+            val = part.strip()
+            if val:
+                items.append(val)
+    return list(dict.fromkeys(items))
+
+
 @dataclass
 class BinanceConfig:
     base_url: str = "https://api.binance.com"
@@ -57,6 +76,24 @@ class AiBotConfig:
 class WeComConfig:
     webhook_urls: list[str] = field(default_factory=list)
     aibot: AiBotConfig = field(default_factory=AiBotConfig)
+
+
+@dataclass
+class TelegramConfig:
+    enabled: bool = True
+    bot_token: str = ""
+    chat_ids: list[str] = field(default_factory=list)
+    push_alerts: bool = True
+    enable_polling: bool = True
+    require_mention_in_group: bool = True
+    allowed_users: list[str] = field(default_factory=list)
+    proxy: str | None = None
+    poll_timeout_seconds: int = 30
+    timeout_seconds: float = 15.0
+
+    @property
+    def is_ready(self) -> bool:
+        return self.enabled and bool(self.bot_token.strip())
 
 
 @dataclass
@@ -96,29 +133,11 @@ class LoggingConfig:
 class AppConfig:
     binance: BinanceConfig = field(default_factory=BinanceConfig)
     wecom: WeComConfig = field(default_factory=WeComConfig)
+    telegram: TelegramConfig = field(default_factory=TelegramConfig)
     llm: LLMConfig = field(default_factory=LLMConfig)
     alert: AlertConfig = field(default_factory=AlertConfig)
     storage: StorageConfig = field(default_factory=StorageConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
-
-
-def _normalize_webhook_urls(raw: Any) -> list[str]:
-    if not raw:
-        return []
-    items: list[str] = []
-    if isinstance(raw, str):
-        raw_list = [raw]
-    elif isinstance(raw, list):
-        raw_list = [str(x) for x in raw if x]
-    else:
-        raw_list = []
-
-    for item in raw_list:
-        for part in item.split(","):
-            url = part.strip()
-            if url:
-                items.append(url)
-    return list(dict.fromkeys(items))
 
 
 def load_config(config_path: str | Path = "config.yaml", env_path: str | Path | None = None) -> AppConfig:
@@ -156,9 +175,9 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path | 
     )
 
     w_raw = data.get("wecom") or {}
-    webhook_urls = _normalize_webhook_urls(w_raw.get("webhook_urls"))
+    webhook_urls = _normalize_str_list(w_raw.get("webhook_urls"))
     if not webhook_urls and os.getenv("WECOM_WEBHOOK_URL"):
-        webhook_urls = _normalize_webhook_urls(os.getenv("WECOM_WEBHOOK_URL"))
+        webhook_urls = _normalize_str_list(os.getenv("WECOM_WEBHOOK_URL"))
 
     ai_raw = w_raw.get("aibot") or {}
     aibot_cfg = AiBotConfig(
@@ -166,9 +185,30 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path | 
         bot_id=str(ai_raw.get("bot_id") or os.getenv("WECOM_BOT_ID") or "").strip(),
         secret=str(ai_raw.get("secret") or os.getenv("WECOM_BOT_SECRET") or "").strip(),
         push_alerts=bool(ai_raw.get("push_alerts", False)),
-        allowed_users=[str(u).strip() for u in (ai_raw.get("allowed_users") or []) if str(u).strip()],
+        allowed_users=_normalize_str_list(ai_raw.get("allowed_users")),
     )
     wecom_cfg = WeComConfig(webhook_urls=webhook_urls, aibot=aibot_cfg)
+
+    t_raw = data.get("telegram") or {}
+    tg_chat_ids = _normalize_str_list(t_raw.get("chat_ids"))
+    if not tg_chat_ids and os.getenv("TELEGRAM_CHAT_IDS"):
+        tg_chat_ids = _normalize_str_list(os.getenv("TELEGRAM_CHAT_IDS"))
+    tg_proxy = t_raw.get("proxy") or os.getenv("TELEGRAM_PROXY") or binance_cfg.proxy
+    if isinstance(tg_proxy, str) and not tg_proxy.strip():
+        tg_proxy = binance_cfg.proxy
+
+    telegram_cfg = TelegramConfig(
+        enabled=bool(t_raw.get("enabled", True)),
+        bot_token=str(t_raw.get("bot_token") or os.getenv("TELEGRAM_BOT_TOKEN") or "").strip(),
+        chat_ids=tg_chat_ids,
+        push_alerts=bool(t_raw.get("push_alerts", True)),
+        enable_polling=bool(t_raw.get("enable_polling", True)),
+        require_mention_in_group=bool(t_raw.get("require_mention_in_group", True)),
+        allowed_users=_normalize_str_list(t_raw.get("allowed_users")),
+        proxy=tg_proxy,
+        poll_timeout_seconds=max(5, min(50, int(t_raw.get("poll_timeout_seconds", 30)))),
+        timeout_seconds=float(t_raw.get("timeout_seconds", 15.0)),
+    )
 
     llm_raw = data.get("llm") or {}
     llm_cfg = LLMConfig(
@@ -200,6 +240,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path | 
     return AppConfig(
         binance=binance_cfg,
         wecom=wecom_cfg,
+        telegram=telegram_cfg,
         llm=llm_cfg,
         alert=alert_cfg,
         storage=storage_cfg,

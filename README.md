@@ -6,9 +6,9 @@
 
 English | [简体中文](./README.zh-CN.md)
 
-A **Binance K-line pattern monitor & natural-language alert bot** built for **WeCom (Enterprise WeChat)** internal groups — powered by Binance public Spot APIs (no Binance API key required) and an LLM rule compiler (default: `deepseek-flash`, compatible with any OpenAI-format endpoint).
+A **Binance K-line pattern monitor & natural-language alert bot** supporting both **Telegram** and **WeCom (Enterprise WeChat)** — powered by Binance public Spot APIs (no Binance API key required) and an LLM rule compiler (default: `deepseek-flash`, compatible with any OpenAI-format endpoint).
 
-Supports both **Binance tokenized US stocks (bStocks, e.g., `NVDABUSDT`, `TSLABUSDT`, `AAPLBUSDT`)** and **Spot crypto pairs (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`, etc.)**. Team members don't need to memorize commands — just `@bot` in the WeCom group using natural language to check candles, manage watchlists, or create custom technical rules backed by a deterministic AST engine and historical backtest preview.
+Monitors both **Binance tokenized US stocks (bStocks, e.g., `NVDABUSDT`, `TSLABUSDT`, `AAPLBUSDT`)** and **Spot crypto pairs (`BTCUSDT`, `ETHUSDT`, `SOLUSDT`, etc.)**. Team members don't need to memorize commands — just message or `@bot` in Telegram or WeCom using plain natural language to check candles, manage watchlists, or create custom technical rules backed by a deterministic AST engine and 120-candle backtest preview.
 
 ---
 
@@ -18,16 +18,16 @@ Supports both **Binance tokenized US stocks (bStocks, e.g., `NVDABUSDT`, `TSLABU
   - The LLM is only invoked when creating a new rule or routing free-form chat. Routine K-line polling is executed 100% locally by a strict Python **AST whitelist evaluator** (no `eval()`, zero hallucination, millisecond latency, zero recurring LLM cost).
   - Built-in candlestick patterns & indicators: `bullish_engulfing`, `bearish_engulfing`, `hammer`, `shooting_star`, `inside_bar`, `three_white_soldiers`, `three_black_crows`, plus `ma`, `ema`, `vol_ma`, `rsi`, `highest_high`, `lowest_low`, and arbitrary multi-candle comparisons.
   - Before activating any new rule, the bot automatically backtests it across the latest **120 closed candles** and replies with hit count + latest trigger timestamp for confirmation.
-- **Zero-Learning-Curve Natural Language Group Interaction**
+- **Zero-Learning-Curve Natural Language Interaction**
   - Supports multi-intent requests in a single message and automatic ticker resolution (e.g., `"Remove Apple, add Microsoft, and check NVIDIA and BTC right now"`).
   - Context-aware follow-ups for confirming/canceling pending rule drafts and enabling/disabling rules by ID or description.
-- **Dual-Channel WeCom Integration (No Public Domain Required)**
-  - **Group Webhook (Primary Alert Delivery)**: Permanent, unaffected by 24-hour session expiration limits, with built-in sliding-window rate limiting (18 msgs/min) to stay safely under WeCom's 20 msgs/min cap.
-  - **WeCom Smart Bot WebSocket (`wecom-aibot-sdk`)**: Connects outbound to `wss://openws.work.weixin.qq.com` for bidirectional group `@mention` commands — no public IP, reverse proxy, or HTTPS callback server required.
-  - Both channels are independently toggleable (Webhook-only, Combo mode, or Smart-Bot-only).
+- **Multi-Channel Delivery: Telegram + WeCom (No Public Domain Required)**
+  - **Telegram Bot (Zero Extra Dependencies)**: Built directly on `httpx` via `getUpdates` long polling + `sendMessage` (`parse_mode="HTML"` with automatic plain-text fallback on 400 and `retry_after` handling on 429). Supports DMs, group `@mentions`, `/slash@bot` commands, and direct replies to bot messages.
+  - **WeCom Group Webhook + Smart Bot WebSocket (`wecom-aibot-sdk`)**: Permanent 24/7 webhook alert delivery (18 msgs/min sliding-window limiter) paired with outbound WebSocket long-connection to `wss://openws.work.weixin.qq.com`.
+  - Run **Telegram-only**, **WeCom-only**, or **both in parallel** with isolated per-channel `chat_ids` and `allowed_users` authorization.
 - **Strict Closed-Candle Evaluation & SQLite Deduplication**
   - Fetches `count + 1` candles and filters by `closeTime <= now - 1s` so still-forming candles never cause intra-bar false alarms.
-  - Persists watchlists, custom rules, per-`(rule, symbol, interval)` deduplication state, and trigger history in SQLite. Failed webhook deliveries are not marked as sent and automatically retry on the next cycle.
+  - Persists watchlists, custom rules, per-`(rule, symbol, interval)` deduplication state, and trigger history in SQLite. Failed deliveries are not marked as sent and automatically retry on the next cycle.
 
 ---
 
@@ -41,10 +41,11 @@ Supports both **Binance tokenized US stocks (bStocks, e.g., `NVDABUSDT`, `TSLABU
                                       │ Polls every 45s (closed candles only)
                                       ▼
 ┌─────────────────────┐      ┌─────────────────────┐      ┌──────────────────────┐
-│  WeCom Smart Bot    │◀────▶│  Command & Monitor  │─────▶│ WeCom Group Webhook  │
-│ (WebSocket Client)  │      │  + Safe AST Engine  │      │ (24/7 Alert Delivery)│
-└─────────────────────┘      └──────────┬──────────┘      └──────────────────────┘
-                                        │ Invoked only for NL chat / rule creation
+│   Telegram Bot      │◀────▶│  Command & Monitor  │─────▶│  Telegram / WeCom    │
+│ (getUpdates Polling)│      │  + Safe AST Engine  │      │  24/7 Alert Delivery │
+│  WeCom Smart Bot    │◀────▶│                     │      └──────────────────────┘
+│ (WebSocket Client)  │      └──────────┬──────────┘
+└─────────────────────┘                 │ Invoked only for NL chat / rule creation
                                         ▼
                              ┌─────────────────────┐      ┌──────────────────────┐
                              │ DeepSeek-Flash LLM  │      │   SQLite State DB    │
@@ -76,7 +77,7 @@ cp config.example.yaml config.yaml
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` (configure Telegram, WeCom, or both):
 
 ```ini
 # Optional: DeepSeek API key for natural-language intent routing & rule compilation
@@ -85,10 +86,14 @@ DEEPSEEK_API_KEY=
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-flash
 
-# Recommended: WeCom internal group Webhook URL for reliable 24/7 alert delivery
-WECOM_WEBHOOK_URL=
+# Telegram Bot (get token from @BotFather -> /newbot)
+TELEGRAM_BOT_TOKEN=
+# Comma-separated target chat_ids (group IDs usually start with -100...)
+TELEGRAM_CHAT_IDS=
+TELEGRAM_PROXY=
 
-# Optional: WeCom Smart Bot long-connection credentials (WeCom Admin -> Smart Bot -> API Mode)
+# WeCom (Enterprise WeChat) - optional if using Telegram only
+WECOM_WEBHOOK_URL=
 WECOM_BOT_ID=
 WECOM_BOT_SECRET=
 
@@ -96,43 +101,46 @@ WECOM_BOT_SECRET=
 BINANCE_PROXY=
 ```
 
+> **Telegram Group Setup Tip**: Add your bot to the group. With Telegram's default privacy mode (`require_mention_in_group: true`), users can trigger it via `@your_bot ...`, `/status`, or by **replying directly to any bot message** (e.g., replying `confirm` to a rule preview). To let the bot read all group messages without `@mention`, disable privacy mode via `@BotFather` → `/setprivacy` → `Disable`.
+
 ### 3. Verify & Run
 
 ```bash
 # 1) Validate configured symbols against Binance Spot exchangeInfo
 binance-alert -c config.yaml validate-symbols
 
-# 2) Dry-run a single poll cycle (prints signals without pushing to WeCom)
+# 2) Dry-run a single poll cycle (prints signals without pushing)
 binance-alert -c config.yaml check-once
 
 # 3) Test LLM rule compilation + live 120-candle Binance backtest (add --save to persist)
 binance-alert -c config.yaml test-rule "NVDA and BTC 1h bullish engulfing with 1.5x volume"
 
-# 4) Send a connectivity test card to your WeCom group webhook
+# 4) Send a connectivity test card to Telegram and/or WeCom
+binance-alert -c config.yaml test-telegram
 binance-alert -c config.yaml test-webhook
 
-# 5) Start the continuous monitor + WeCom Smart Bot
+# 5) Start the continuous monitor + bots
 binance-alert -c config.yaml run
 ```
 
 ---
 
-## Group Interaction Examples
+## Interactive Examples (Telegram & WeCom)
 
-Once the Smart Bot is added to your WeCom internal group, simply `@bot` in plain language (Chinese or English):
+In a Telegram DM, Telegram group (`@bot` / `/cmd` / reply), or WeCom group (`@bot`):
 
-- **Status & Live Check**: `"What symbols are we watching? Also check NVDA and BTC right now"`
+- **Status & Live Check**: `/status`, `"What symbols are we watching? Also check NVDA and BTC right now"`
 - **Watchlist Management**: `"Add MSFT and DOGE"`, `"Remove AAPL"`
 - **Create Custom Rule**: `"Alert me when ETH 15m forms a hammer candle above MA20"` → review the 120-candle backtest preview → reply `"confirm"`
-- **Manage Rules & Alerts**: `"Show all rules"`, `"Disable rule #1"`, `"Delete rule #2"`, `"Pause alerts"`, `"Resume alerts"`
+- **Manage Rules & Alerts**: `/rules`, `"Disable rule #1"`, `"Delete rule #2"`, `/pause`, `/resume`
 
-Fast-path keyword commands are also supported (0 ms, no LLM call): `status`, `list`, `add`, `remove`, `check`, `rules`, `history`, `pause`, `resume`, `help`.
+Fast-path commands work with zero LLM calls: `status`, `list`, `add`, `remove`, `check`, `rules`, `history`, `pause`, `resume`, `help` (with or without leading `/` or `@botname`).
 
 ---
 
 ## Production Deployment
 
-Recommended on a lightweight VPS in **Singapore, Tokyo, or Hong Kong** (1 vCPU / 1 GB RAM is plenty; resident memory is ~50–80 MB, with direct low-latency connectivity to both Binance and WeCom. Avoid US regions due to Binance HTTP 451 geo-restrictions).
+Recommended on a lightweight VPS in **Singapore, Tokyo, or Hong Kong** (1 vCPU / 1 GB RAM is plenty; resident memory is ~50–80 MB, with direct low-latency connectivity to Binance, Telegram, and WeCom. Avoid US regions due to Binance HTTP 451 geo-restrictions).
 
 ### Option 1: systemd (Lightweight, Recommended)
 
@@ -158,7 +166,7 @@ docker compose up -d --build
 docker compose logs -f
 ```
 
-> **Note:** WeCom Smart Bot allows only **1 active WebSocket long-connection** per `BotID` at a time. Avoid running multiple instances with the same `WECOM_BOT_ID` / `WECOM_BOT_SECRET` simultaneously.
+> **Note:** Both Telegram `getUpdates` polling and WeCom Smart Bot WebSocket allow only **1 active instance** per bot token / `BotID`. Do not run two instances simultaneously with the same credentials.
 
 ---
 

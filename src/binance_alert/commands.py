@@ -17,13 +17,15 @@ from .store import StateStore
 
 logger = logging.getLogger(__name__)
 
-# Matches leading @BotName mentions in WeCom group chats (handles space or \u2005 four-per-em space)
+# Matches leading @BotName mentions in WeCom/Telegram group chats (handles space or \u2005 four-per-em space)
 _LEADING_MENTION_RE = re.compile(r"^(?:@[^\s\u2005]+[\s\u2005]+)+")
+_SLASH_CMD_RE = re.compile(r"^/([A-Za-z0-9_]+)(?:@[A-Za-z0-9_]+)?(?=\s|$)")
 
 
 def strip_mentions(text: str) -> str:
     cleaned = text.replace("\u2005", " ").strip()
     cleaned = _LEADING_MENTION_RE.sub("", cleaned).strip()
+    cleaned = _SLASH_CMD_RE.sub(r"\1", cleaned).strip()
     return cleaned
 
 
@@ -54,17 +56,21 @@ class CommandHandler:
         self.status_provider = status_provider
         self._pending_drafts: dict[str, _PendingRuleDraft] = {}
 
-    def _is_authorized(self, user_id: str) -> bool:
-        allowed = self.config.wecom.aibot.allowed_users
+    def _is_authorized(self, user_id: str, *, channel: str = "wecom") -> bool:
+        allowed = (
+            self.config.telegram.allowed_users
+            if channel == "telegram"
+            else self.config.wecom.aibot.allowed_users
+        )
         if not allowed:
             return True
         return bool(user_id) and user_id in allowed
 
-    def _draft_key(self, user_id: str) -> str:
-        return user_id or "__default__"
+    def _draft_key(self, user_id: str, channel: str = "wecom") -> str:
+        return f"{channel}:{user_id or '__default__'}"
 
-    def _get_active_draft(self, user_id: str) -> CustomRule | None:
-        key = self._draft_key(user_id)
+    def _get_active_draft(self, user_id: str, *, channel: str = "wecom") -> CustomRule | None:
+        key = self._draft_key(user_id, channel)
         draft = self._pending_drafts.get(key)
         if not draft:
             return None
@@ -73,7 +79,7 @@ class CommandHandler:
             return None
         return draft.rule
 
-    async def handle(self, raw_text: str, *, user_id: str = "") -> str:
+    async def handle(self, raw_text: str, *, user_id: str = "", channel: str = "wecom") -> str:
         text = strip_mentions(raw_text)
         if not text:
             return self._help_text()
@@ -83,7 +89,7 @@ class CommandHandler:
         args = parts[1:]
 
         # ---- Fast-path exact commands (0ms, no LLM call) ----
-        if cmd in {"help", "帮助", "菜单", "?", "？"}:
+        if cmd in {"help", "帮助", "菜单", "?", "？", "start"}:
             return self._help_text()
 
         if cmd in {"status", "状态"} and not args:
@@ -96,26 +102,26 @@ class CommandHandler:
             return self._handle_rules()
 
         if cmd in {"confirm", "确认", "确定", "激活"} and not args:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限激活自定义规则。"
-            return self._handle_confirm_rule(user_id=user_id)
+            return self._handle_confirm_rule(user_id=user_id, channel=channel)
 
         if cmd in {"cancel", "取消", "放弃"} and not args:
-            return self._handle_cancel_rule(user_id=user_id)
+            return self._handle_cancel_rule(user_id=user_id, channel=channel)
 
         if cmd in {"rule", "addrule", "新增规则", "添加规则", "设置形态"}:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限创建自定义规则。"
             prompt = text[len(parts[0]):].strip()
-            return await self._handle_compile_rule(prompt, user_id=user_id)
+            return await self._handle_compile_rule(prompt, user_id=user_id, channel=channel)
 
         if cmd in {"delrule", "rmrule", "删除规则", "移除规则"}:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限删除自定义规则。"
             return self._handle_delete_rule(args)
 
         if cmd in {"togglerule", "开关规则", "启停规则"}:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限切换规则状态。"
             return self._handle_toggle_rule(args)
 
@@ -132,37 +138,37 @@ class CommandHandler:
             return await self._handle_check(args)
 
         if cmd in {"add", "添加", "新增"} and args:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限修改监控列表（未在 `allowed_users` 白名单中）。"
-            return await self._handle_add(args, user_id=user_id)
+            return await self._handle_add(args, user_id=user_id, channel=channel)
 
         if cmd in {"remove", "rm", "del", "delete", "删除", "移除"} and args:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限修改监控列表（未在 `allowed_users` 白名单中）。"
             return self._handle_remove(args)
 
         if cmd in {"pause", "暂停"} and not args:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限暂停提醒。"
             self.store.set_paused(True)
             return "⏸️ 已暂停告警推送（监控仍保持在线，说一声「恢复推送」即可重新开启）。"
 
         if cmd in {"resume", "恢复", "开启"} and not args:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限恢复提醒。"
             self.store.set_paused(False)
             return "▶️ 已恢复告警推送。"
 
         # ---- Natural-language intent routing via DeepSeek-Flash ----
         if self.llm_compiler and self.llm_compiler.is_ready:
-            return await self._handle_natural_language(text, user_id=user_id)
+            return await self._handle_natural_language(text, user_id=user_id, channel=channel)
 
         return f"未识别命令：`{parts[0]}`\n\n{self._help_text()}"
 
-    async def _handle_natural_language(self, text: str, *, user_id: str) -> str:
+    async def _handle_natural_language(self, text: str, *, user_id: str, channel: str = "wecom") -> str:
         watched = [(s.symbol, s.display_name) for s in self.store.list_symbols()]
         rules = self.store.list_rules(enabled_only=False)
-        pending = self._get_active_draft(user_id)
+        pending = self._get_active_draft(user_id, channel=channel)
 
         try:
             actions = await self.llm_compiler.route_intent(  # type: ignore[union-attr]
@@ -180,7 +186,9 @@ class CommandHandler:
 
         outputs: list[str] = []
         for item in actions:
-            outputs.append(await self._execute_routed_action(item, original_text=text, user_id=user_id))
+            outputs.append(
+                await self._execute_routed_action(item, original_text=text, user_id=user_id, channel=channel)
+            )
 
         return "\n\n---\n\n".join(o for o in outputs if o)
 
@@ -190,6 +198,7 @@ class CommandHandler:
         *,
         original_text: str,
         user_id: str,
+        channel: str = "wecom",
     ) -> str:
         action = str(item.get("action") or "").strip().lower()
 
@@ -216,51 +225,51 @@ class CommandHandler:
 
         # ---- Mutating actions require authorization ----
         if action == "add_symbols":
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限修改监控列表（未在 `allowed_users` 白名单中）。"
             syms = [str(s).strip() for s in (item.get("symbols") or []) if str(s).strip()]
-            return await self._handle_add(syms, user_id=user_id)
+            return await self._handle_add(syms, user_id=user_id, channel=channel)
 
         if action == "remove_symbols":
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限修改监控列表（未在 `allowed_users` 白名单中）。"
             syms = [str(s).strip() for s in (item.get("symbols") or []) if str(s).strip()]
             return self._handle_remove(syms)
 
         if action == "pause":
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限暂停提醒。"
             self.store.set_paused(True)
             return "⏸️ 已暂停告警推送（说一声「恢复推送」即可重新开启）。"
 
         if action == "resume":
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限恢复提醒。"
             self.store.set_paused(False)
             return "▶️ 已恢复告警推送。"
 
         if action == "create_rule":
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限创建自定义规则。"
             prompt = str(item.get("prompt") or original_text).strip()
-            return await self._handle_compile_rule(prompt, user_id=user_id)
+            return await self._handle_compile_rule(prompt, user_id=user_id, channel=channel)
 
         if action == "confirm_rule":
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限激活自定义规则。"
-            return self._handle_confirm_rule(user_id=user_id)
+            return self._handle_confirm_rule(user_id=user_id, channel=channel)
 
         if action == "cancel_rule":
-            return self._handle_cancel_rule(user_id=user_id)
+            return self._handle_cancel_rule(user_id=user_id, channel=channel)
 
         if action == "delete_rule":
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限删除自定义规则。"
             rule_id = item.get("rule_id")
             return self._handle_delete_rule([str(rule_id)] if rule_id is not None else [])
 
         if action in {"set_rule_enabled", "toggle_rule"}:
-            if not self._is_authorized(user_id):
+            if not self._is_authorized(user_id, channel=channel):
                 return "⛔ 你没有权限切换规则状态。"
             rule_id = item.get("rule_id")
             if rule_id is None:
@@ -351,7 +360,7 @@ class CommandHandler:
             )
         return "\n".join(lines)
 
-    async def _handle_compile_rule(self, prompt: str, *, user_id: str) -> str:
+    async def _handle_compile_rule(self, prompt: str, *, user_id: str, channel: str = "wecom") -> str:
         if not prompt:
             return (
                 "请直接用自然语言描述你想监控的形态，例如：\n"
@@ -368,7 +377,7 @@ class CommandHandler:
                 prompt,
                 default_interval=self.config.binance.interval,
                 watched_symbols=watched,
-                created_by=user_id or "wecom",
+                created_by=user_id or channel,
             )
         except RuleCompileError as exc:
             return f"❌ 规则编译失败：{exc}"
@@ -417,7 +426,7 @@ class CommandHandler:
             except Exception as exc:
                 backtest_lines.append(f"- `{sym}` 回测预览失败：{exc}")
 
-        self._pending_drafts[self._draft_key(user_id)] = _PendingRuleDraft(
+        self._pending_drafts[self._draft_key(user_id, channel)] = _PendingRuleDraft(
             rule=draft,
             created_at=time.monotonic(),
         )
@@ -437,13 +446,13 @@ class CommandHandler:
             "请回复「确认」（或「好的，开启吧」）激活该规则，或回复「取消」放弃（5 分钟内有效）。"
         )
 
-    def _handle_confirm_rule(self, *, user_id: str) -> str:
-        draft = self._get_active_draft(user_id)
+    def _handle_confirm_rule(self, *, user_id: str, channel: str = "wecom") -> str:
+        draft = self._get_active_draft(user_id, channel=channel)
         if draft is None:
             return "当前没有待确认的规则草稿（或已超过 5 分钟过期），请重新告诉我你想加什么规则。"
 
         rule_id = self.store.add_rule(draft)
-        self._pending_drafts.pop(self._draft_key(user_id), None)
+        self._pending_drafts.pop(self._draft_key(user_id, channel), None)
         sym_label = "全部监控标的" if draft.symbols == ["*"] else ", ".join(f"`{s}`" for s in draft.symbols)
         return (
             f"✅ 规则 **#{rule_id} {draft.name}** 已激活！\n"
@@ -452,8 +461,8 @@ class CommandHandler:
             "后续将由服务器本地确定性引擎自动监控（零 LLM 消耗）。"
         )
 
-    def _handle_cancel_rule(self, *, user_id: str) -> str:
-        key = self._draft_key(user_id)
+    def _handle_cancel_rule(self, *, user_id: str, channel: str = "wecom") -> str:
+        key = self._draft_key(user_id, channel)
         if key in self._pending_drafts:
             self._pending_drafts.pop(key, None)
             return "已取消待确认的规则草稿。"
@@ -506,7 +515,7 @@ class CommandHandler:
             )
         return "\n".join(lines)
 
-    async def _handle_add(self, args: list[str], *, user_id: str) -> str:
+    async def _handle_add(self, args: list[str], *, user_id: str, channel: str = "wecom") -> str:
         if not args:
             return "请告诉我要添加哪些标的，例如：「帮我加上比特币和微软」"
 
@@ -525,7 +534,7 @@ class CommandHandler:
             created = self.store.add_symbol(
                 symbol,
                 display_name=display_name,
-                added_by=user_id or "wecom",
+                added_by=user_id or channel,
             )
             if created:
                 results.append(f"- ✅ 已添加 **{display_name}** (`{symbol}`)")

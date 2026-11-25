@@ -37,6 +37,22 @@ wecom:
     # 允许修改标的/规则/启停的企微 userid 白名单；留空表示群内所有成员均可操作
     allowed_users: []
 
+telegram:
+  # Telegram Bot 通道（支持纯 Telegram / 纯企微 / 双通道并行，无需公网域名）
+  enabled: true
+  bot_token: ${TELEGRAM_BOT_TOKEN}
+  # 固定推送目标 chat_id（支持列表或逗号分隔环境变量）；也会自动记录交互过的活跃 chat_id
+  chat_ids:
+    - ${TELEGRAM_CHAT_IDS}
+  push_alerts: true
+  enable_polling: true
+  # 群聊中仅响应 @bot、/斜杠命令 或 直接回复 Bot 的消息
+  require_mention_in_group: true
+  # 允许修改标的/规则/启停的 Telegram numeric user_id 白名单；留空表示全部允许
+  allowed_users: []
+  # 可选代理，留空时回退到 binance.proxy
+  proxy: ${TELEGRAM_PROXY}
+
 llm:
   # 用于自然语言意图理解与形态规则编译（日常 K 线轮询零 LLM 消耗）
   enabled: true

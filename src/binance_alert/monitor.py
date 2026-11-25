@@ -14,6 +14,7 @@ from .formatter import format_custom_rule_alert_markdown, format_signal_markdown
 from .models import Kline, PatternSignal
 from .rule_engine import CustomRule, InsufficientDataError, evaluate_expression
 from .store import StateStore
+from .telegram_client import TelegramBotClient
 from .webhook import WeComWebhookClient
 
 logger = logging.getLogger(__name__)
@@ -51,6 +52,7 @@ class KlineMonitor:
         detector: EngulfingDetector,
         webhook: WeComWebhookClient,
         aibot: WeComAiBotBridge | None = None,
+        telegram: TelegramBotClient | None = None,
     ) -> None:
         self.config = config
         self.store = store
@@ -58,6 +60,7 @@ class KlineMonitor:
         self.detector = detector
         self.webhook = webhook
         self.aibot = aibot
+        self.telegram = telegram
         self._semaphore = asyncio.Semaphore(config.binance.max_concurrency)
 
     async def _fetch_series(
@@ -71,18 +74,36 @@ class KlineMonitor:
                 logger.warning("Failed fetching %s (%s): %s", symbol, interval, exc)
                 return (symbol, interval), None, f"{symbol}({interval}): {exc}"
 
-    async def _dispatch_markdown(self, md: str) -> tuple[bool, bool, bool]:
-        """Deliver markdown to active WeCom channels. Returns (webhook_ok, aibot_ok, has_channel)."""
-        has_channel = self.webhook.is_configured or (
-            self.aibot is not None and self.config.wecom.aibot.push_alerts and self.aibot.is_connected
+    async def _dispatch_markdown(self, md: str) -> tuple[bool, bool, bool, bool]:
+        """Deliver markdown to active WeCom & Telegram channels.
+
+        Returns (webhook_ok, aibot_ok, tg_ok, has_channel).
+        """
+        aibot_active = (
+            self.aibot is not None
+            and self.config.wecom.aibot.push_alerts
+            and self.aibot.is_connected
         )
-        webhook_ok = False
-        aibot_ok = False
-        if self.webhook.is_configured:
-            webhook_ok = await self.webhook.send_markdown(md)
-        if self.aibot is not None and self.config.wecom.aibot.push_alerts:
-            aibot_ok = await self.aibot.push_markdown(md)
-        return webhook_ok, aibot_ok, has_channel
+        tg_active = self.telegram is not None and self.telegram.is_configured
+        has_channel = self.webhook.is_configured or aibot_active or tg_active
+
+        async def _send_webhook() -> bool:
+            return await self.webhook.send_markdown(md) if self.webhook.is_configured else False
+
+        async def _send_aibot() -> bool:
+            if self.aibot is not None and self.config.wecom.aibot.push_alerts:
+                return await self.aibot.push_markdown(md)
+            return False
+
+        async def _send_telegram() -> bool:
+            return await self.telegram.send_markdown(md) if tg_active and self.telegram is not None else False
+
+        webhook_ok, aibot_ok, tg_ok = await asyncio.gather(
+            _send_webhook(),
+            _send_aibot(),
+            _send_telegram(),
+        )
+        return webhook_ok, aibot_ok, tg_ok, has_channel
 
     async def poll_once(self, *, dry_run: bool = False) -> PollSummary:
         watched_items = self.store.list_symbols(enabled_only=True)
@@ -151,32 +172,33 @@ class KlineMonitor:
                     logger.info("[DRY-RUN] Signal detected:\n%s", md)
                     continue
 
-                webhook_ok, aibot_ok, has_channel = await self._dispatch_markdown(md)
-                if webhook_ok or aibot_ok or not has_channel:
+                webhook_ok, aibot_ok, tg_ok, has_channel = await self._dispatch_markdown(md)
+                if webhook_ok or aibot_ok or tg_ok or not has_channel:
                     self.store.record_alert(
                         signal,
                         delivered_webhook=webhook_ok,
-                        delivered_aibot=aibot_ok,
+                        delivered_aibot=aibot_ok or tg_ok,
                     )
-                    if webhook_ok or aibot_ok:
+                    if webhook_ok or aibot_ok or tg_ok:
                         summary.delivered += 1
                         logger.info(
-                            "Delivered %s %s alert (webhook=%s, aibot=%s)",
+                            "Delivered %s %s alert (webhook=%s, aibot=%s, telegram=%s)",
                             signal.symbol,
                             signal.pattern.cn_name,
                             webhook_ok,
                             aibot_ok,
+                            tg_ok,
                         )
                     else:
                         logger.warning(
-                            "Signal %s %s detected but no WeCom push channel active:\n%s",
+                            "Signal %s %s detected but no alert push channel active:\n%s",
                             signal.symbol,
                             signal.pattern.cn_name,
                             md,
                         )
                 else:
                     logger.error(
-                        "All WeCom push channels failed for %s %s; will retry on next poll",
+                        "All alert push channels failed for %s %s; will retry on next poll",
                         signal.symbol,
                         signal.pattern.cn_name,
                     )
@@ -233,28 +255,31 @@ class KlineMonitor:
                     logger.info("[DRY-RUN] Custom rule hit:\n%s", md)
                     continue
 
-                webhook_ok, aibot_ok, has_channel = await self._dispatch_markdown(md)
-                if webhook_ok or aibot_ok or not has_channel:
+                webhook_ok, aibot_ok, tg_ok, has_channel = await self._dispatch_markdown(md)
+                if webhook_ok or aibot_ok or tg_ok or not has_channel:
                     self.store.record_rule_alert(
                         rule=rule,
                         symbol=sym,
                         curr=curr,
                         prev=prev,
                         delivered_webhook=webhook_ok,
-                        delivered_aibot=aibot_ok,
+                        delivered_aibot=aibot_ok or tg_ok,
                     )
-                    if webhook_ok or aibot_ok:
+                    if webhook_ok or aibot_ok or tg_ok:
                         summary.delivered += 1
                         logger.info(
-                            "Delivered custom rule #%s (%s %s) alert",
+                            "Delivered custom rule #%s (%s %s) alert (webhook=%s, aibot=%s, telegram=%s)",
                             rule.id,
                             sym,
                             rule.name,
+                            webhook_ok,
+                            aibot_ok,
+                            tg_ok,
                         )
                     else:
-                        logger.warning("Custom rule #%s hit but no WeCom push channel active:\n%s", rule.id, md)
+                        logger.warning("Custom rule #%s hit but no alert push channel active:\n%s", rule.id, md)
                 else:
-                    logger.error("All WeCom push channels failed for custom rule #%s (%s); will retry", rule.id, sym)
+                    logger.error("All alert push channels failed for custom rule #%s (%s); will retry", rule.id, sym)
 
         return summary
 
