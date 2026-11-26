@@ -116,6 +116,7 @@ class AlertConfig:
     enable_volume_filter: bool = True
     min_body_ratio: Decimal = Decimal("1.0")
     min_body_pct: Decimal = Decimal("0.001")
+    min_change_pct: Decimal = Decimal("0")
     timezone: str = "Asia/Shanghai"
 
 
@@ -226,6 +227,7 @@ def load_config(config_path: str | Path = "config.yaml", env_path: str | Path | 
         enable_volume_filter=bool(a_raw.get("enable_volume_filter", True)),
         min_body_ratio=Decimal(str(a_raw.get("min_body_ratio", 1.0))),
         min_body_pct=Decimal(str(a_raw.get("min_body_pct", 0.001))),
+        min_change_pct=Decimal(str(a_raw.get("min_change_pct", 0))),
         timezone=str(a_raw.get("timezone") or "Asia/Shanghai"),
     )
 

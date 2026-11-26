@@ -69,6 +69,8 @@ alert:
   enable_volume_filter: true
   min_body_ratio: 1.0
   min_body_pct: 0.001
+  # 当前 K 线涨跌幅绝对值下限（百分比，如 3.0 表示阳包阴 ≥+3% / 阴包阳 ≤-3%）；0 表示不限
+  min_change_pct: 0
   timezone: Asia/Shanghai
 
 storage:

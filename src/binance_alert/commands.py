@@ -318,6 +318,11 @@ class CommandHandler:
         vol_filter = "开启" if self.config.alert.enable_volume_filter else "关闭"
         state_text = "⏸️ 已暂停推送" if paused else "✅ 运行中"
         llm_status = f"🟢 {self.config.llm.model}" if self.config.llm.is_ready else "⚪ 未配置 API Key"
+        min_chg_text = (
+            f"，最小涨跌幅=`≥{self.config.alert.min_change_pct:g}%`"
+            if self.config.alert.min_change_pct > 0
+            else ""
+        )
 
         return (
             "### 📊 监控运行状态\n"
@@ -326,7 +331,7 @@ class CommandHandler:
             f"> **监控标的数**：{len(symbols)} 个\n"
             f"> **启用自定义规则**：{len(rules)} 条\n"
             f"> **自然语言理解**：{llm_status}\n"
-            f"> **默认吞没过滤**：成交量放大={vol_filter}，最小实体比=`{self.config.alert.min_body_ratio}`\n"
+            f"> **默认吞没过滤**：成交量放大={vol_filter}，最小实体比=`{self.config.alert.min_body_ratio}`{min_chg_text}\n"
             f"> **Webhook 通道**：{webhook_cnt} 个\n"
             f"> **累计推送次数**：{total_alerts}\n"
             f"> **最近轮询**：{last_poll}"

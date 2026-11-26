@@ -80,3 +80,29 @@ def test_partial_overlap_not_engulfing():
     prev = _kline(1_000_000, "105.0", "100.0", "100")
     curr = _kline(4_600_000, "100.5", "106.0", "200")  # open > prev.close
     assert detector.detect(prev, curr) is None
+
+
+def test_min_change_pct_filters_small_moves():
+    detector = EngulfingDetector(enable_volume_filter=True, min_change_pct=Decimal("3.0"))
+
+    # Bullish engulfing with +2.5% move -> blocked
+    prev_bull = _kline(1_000_000, "101.0", "100.0", "100")
+    curr_bull_small = _kline(4_600_000, "100.0", "102.5", "150")
+    assert detector.detect(prev_bull, curr_bull_small) is None
+
+    # Bullish engulfing with exact +3.0% move -> passes
+    curr_bull_ok = _kline(4_600_000, "100.0", "103.0", "150")
+    sig_bull = detector.detect(prev_bull, curr_bull_ok)
+    assert sig_bull is not None
+    assert sig_bull.pattern is PatternType.BULLISH_ENGULFING
+
+    # Bearish engulfing with -2.9% move -> blocked
+    prev_bear = _kline(1_000_000, "99.0", "100.0", "100")
+    curr_bear_small = _kline(4_600_000, "100.0", "97.1", "150")
+    assert detector.detect(prev_bear, curr_bear_small) is None
+
+    # Bearish engulfing with exact -3.0% move -> passes
+    curr_bear_ok = _kline(4_600_000, "100.0", "97.0", "150")
+    sig_bear = detector.detect(prev_bear, curr_bear_ok)
+    assert sig_bear is not None
+    assert sig_bear.pattern is PatternType.BEARISH_ENGULFING

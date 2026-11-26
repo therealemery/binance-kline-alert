@@ -58,6 +58,7 @@ def _build_components(cfg: AppConfig) -> tuple[
         enable_volume_filter=cfg.alert.enable_volume_filter,
         min_body_ratio=cfg.alert.min_body_ratio,
         min_body_pct=cfg.alert.min_body_pct,
+        min_change_pct=cfg.alert.min_change_pct,
     )
     webhook = WeComWebhookClient(cfg.wecom.webhook_urls)
     llm_compiler = DeepSeekRuleCompiler(cfg.llm)

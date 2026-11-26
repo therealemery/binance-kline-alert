@@ -14,10 +14,12 @@ class EngulfingDetector:
         enable_volume_filter: bool = True,
         min_body_ratio: Decimal = Decimal("1.0"),
         min_body_pct: Decimal = Decimal("0.001"),
+        min_change_pct: Decimal = Decimal("0"),
     ) -> None:
         self.enable_volume_filter = enable_volume_filter
         self.min_body_ratio = min_body_ratio
         self.min_body_pct = min_body_pct
+        self.min_change_pct = min_change_pct
 
     def detect(
         self,
@@ -39,6 +41,9 @@ class EngulfingDetector:
         if self.min_body_pct > 0:
             if prev_kline.body_pct < self.min_body_pct or curr_kline.body_pct < self.min_body_pct:
                 return None
+
+        if self.min_change_pct > 0 and abs(curr_kline.change_pct) < self.min_change_pct:
+            return None
 
         body_ratio = curr_body / prev_body
         if body_ratio < self.min_body_ratio:
